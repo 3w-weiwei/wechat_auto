@@ -13,8 +13,8 @@ function App() {
   const connected = useAppStore((s) => s.connected);
 
   const statusLabel = connected
-    ? engineStatus === 'ready' ? 'Engine Ready' : engineStatus === 'minimized' ? 'Minimized' : 'Not Found'
-    : 'Disconnected';
+    ? engineStatus === 'ready' ? '视觉就绪' : engineStatus === 'minimized' ? '已最小化' : '未见微信'
+    : '未连接';
 
   return (
     <div className="min-h-screen bg-gray-800 flex items-center justify-center p-4 font-sans selection:bg-green-200">
@@ -44,7 +44,7 @@ function App() {
             className={`flex flex-col items-center w-16 transition-colors ${activeTab === 'tasks' ? 'text-green-500' : 'text-gray-400'}`}
           >
             <Clock size={22} className="mb-1" />
-            <span className="text-[10px] font-bold">Tasks</span>
+            <span className="text-[10px] font-bold">任务</span>
           </button>
 
           <button
@@ -54,7 +54,7 @@ function App() {
             <div className={`p-3.5 rounded-[26px] shadow-lg ${activeTab === 'create' ? 'bg-green-500 shadow-green-500/40' : 'bg-gray-800 shadow-gray-800/40'} text-white transition-all`}>
               <PlusCircle size={28} />
             </div>
-            <span className={`text-[10px] font-bold mt-1 ${activeTab === 'create' ? 'text-green-500' : 'text-gray-600'}`}>New</span>
+            <span className={`text-[10px] font-bold mt-1 ${activeTab === 'create' ? 'text-green-500' : 'text-gray-600'}`}>新建</span>
           </button>
 
           <button
@@ -62,7 +62,7 @@ function App() {
             className={`flex flex-col items-center w-16 transition-colors ${activeTab === 'settings' ? 'text-green-500' : 'text-gray-400'}`}
           >
             <Settings size={22} className="mb-1" />
-            <span className="text-[10px] font-bold">Settings</span>
+            <span className="text-[10px] font-bold">设置</span>
           </button>
         </div>
 

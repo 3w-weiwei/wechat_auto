@@ -35,7 +35,7 @@ export function TaskCard({ task, onToggle, onRunNow, onEdit, onDelete }: Props) 
                 <Calendar size={12} className="mr-1" /> {task.datetime}
               </span>
               <span className="text-[10px] font-bold text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded">
-                {task.contents.length} items
+                {task.contents.length} 条
               </span>
             </div>
           </div>
@@ -50,20 +50,20 @@ export function TaskCard({ task, onToggle, onRunNow, onEdit, onDelete }: Props) 
           onClick={() => onRunNow(task.id)}
           className="flex items-center text-xs font-bold text-orange-500 bg-orange-50 hover:bg-orange-100 px-2 py-1.5 rounded-md border border-orange-100 transition-colors"
         >
-          <Play size={12} className="mr-1" /> Send
+          <Play size={12} className="mr-1" /> 发送
         </button>
         <button
           onClick={() => onEdit(task)}
           className="flex items-center text-xs font-bold text-blue-500 bg-blue-50 hover:bg-blue-100 px-2 py-1.5 rounded-md border border-blue-100 transition-colors"
         >
-          <Edit size={12} className="mr-1" /> Edit
+          <Edit size={12} className="mr-1" /> 编辑
         </button>
         <div className="flex-1" />
         <button
           onClick={() => onDelete(task.id)}
           className="flex items-center text-xs font-bold text-red-400 bg-red-50 hover:bg-red-100 px-2 py-1.5 rounded-md border border-red-100 transition-colors"
         >
-          <Trash2 size={12} className="mr-1" /> Delete
+          <Trash2 size={12} className="mr-1" /> 删除
         </button>
       </div>
     </div>
