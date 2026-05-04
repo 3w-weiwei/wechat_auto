@@ -98,11 +98,22 @@ class WeChatPlatform(IMessagingPlatform):
             self._log("[导航] ❌ 截图失败")
             return False
 
+        # DEBUG: save screenshot for inspection
+        import cv2, tempfile
+        debug_path = os.path.join(tempfile.gettempdir(), "wechat_auto_debug_screenshot.png")
+        cv2.imwrite(debug_path, scr)
+        self._log(f"[调试] 截图已保存: {debug_path} ({scr.shape[1]}x{scr.shape[0]})")
+
         # Step 1: Click search box
         search_tpl = self._get_template_path("search")
         search_clicked = False
         if search_tpl:
             self._log(f"[导航] 匹配搜索框: {os.path.basename(search_tpl)}")
+            # DEBUG: save template for inspection
+            tpl_debug = os.path.join(tempfile.gettempdir(), "wechat_auto_debug_template.png")
+            import shutil
+            shutil.copy(search_tpl, tpl_debug)
+            self._log(f"[调试] 模板已复制: {tpl_debug}")
             m = self._vision.match_template(scr, search_tpl)
             if m is not None:
                 cx = self._wx_region.left + m.x + m.width // 2

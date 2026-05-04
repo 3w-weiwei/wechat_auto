@@ -62,31 +62,15 @@ class QueueRunner:
             self._log(f"[队列] [{idx + 1}/{total}] ▶ 开始: {task.group} (内容 {len(contents)} 条)")
 
             try:
-                # Step 1: Activate WeChat
-                self._log(f"[队列] 步骤1: 激活微信窗口...")
-                activated = False
-                for attempt in range(3):
-                    if self._platform.activate():
-                        activated = True
-                        self._log(f"[队列] ✅ 微信窗口已激活")
-                        break
-                    self._log(f"[队列] ⚠️ 激活失败，重试 {attempt + 1}/3...")
-                    time.sleep(2)
-                if not activated:
-                    self._task_done(tid, False, f"未能激活微信窗口")
-                    fail_count += 1
-                    continue
-
-                # Step 2: Calibrate
-                self._log(f"[队列] 步骤2: 校准窗口位置...")
-                time.sleep(0.5)  # let window settle
+                # Step 1: Calibrate (finds window, records position, tries to activate)
+                self._log(f"[队列] 步骤1: 校准微信窗口...")
                 if not self._platform.calibrate():
                     self._task_done(tid, False, f"窗口校准失败")
                     fail_count += 1
                     continue
 
-                # Step 3: Navigate to chat
-                self._log(f"[队列] 步骤3: 搜索并进入群聊 '{task.group}'")
+                # Step 2: Navigate to chat (screenshot + template match + click + type)
+                self._log(f"[队列] 步骤2: 搜索并进入群聊 '{task.group}'")
                 region = self._platform.get_wx_region()
                 if region:
                     self._log(f"[队列] 微信窗口区域: ({region.left},{region.top}) {region.width}x{region.height}")
@@ -95,8 +79,8 @@ class QueueRunner:
                     self._log(f"[队列] ⚠️ 导航可能不完整，继续发送...")
                 time.sleep(0.8)
 
-                # Step 4: Send each content item
-                self._log(f"[队列] 步骤4: 发送 {len(contents)} 条内容")
+                # Step 3: Send each content item
+                self._log(f"[队列] 步骤3: 发送 {len(contents)} 条内容")
                 sent = 0
                 for i, item in enumerate(contents):
                     if self._stop_event.is_set():

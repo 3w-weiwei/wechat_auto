@@ -3,6 +3,17 @@
 
 from __future__ import annotations
 
+# ★★★ DPI awareness MUST be set before any other imports that use screen coordinates ★★★
+import ctypes
+
+try:
+    ctypes.windll.shcore.SetProcessDpiAwareness(2)  # PerMonitorV2
+except Exception:
+    try:
+        ctypes.windll.user32.SetProcessDPIAware()
+    except Exception:
+        pass
+
 import asyncio
 import contextlib
 import os
@@ -91,7 +102,12 @@ class EngineApp:
     def _log(self, msg: str, level: str = "info") -> None:
         ts = datetime.now().strftime('%H:%M:%S')
         formatted = f"[{ts}] {msg}"
-        print(formatted, flush=True)
+        try:
+            print(formatted, flush=True)
+        except UnicodeEncodeError:
+            # GBK console can't handle emoji/special chars; fall back to ASCII-safe
+            safe = formatted.encode('ascii', errors='replace').decode('ascii')
+            print(safe, flush=True)
         self._log_queue.put({
             "level": level, "message": msg,
             "timestamp": datetime.now().isoformat(),

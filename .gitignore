@@ -38,11 +38,15 @@ release/
 
 # Runtime data (created at runtime, not committed)
 attachments/
-templates/
+/templates/
 *.db
 *.sqlite
 tasks.json
 config.json
+
+# Old prototype files (not for production)
+wechat_auto_v3.0.py
+微信视觉群发助手_v3.jsx
 
 # uv
 uv.lock

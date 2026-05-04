@@ -99,17 +99,27 @@ class WindowsPlatformAdapter(PlatformAdapter):
             return False
 
     def get_screenshot(self, region: WindowRect | None = None) -> object | None:
+        """Capture screen region using mss (physical pixels, DPI-aware)."""
         try:
-            if region:
-                ss = pyautogui.screenshot(
-                    region=(region.left, region.top, region.width, region.height)
-                )
-            else:
-                ss = pyautogui.screenshot()
             import cv2
+            import mss
 
-            return cv2.cvtColor(np.array(ss), cv2.COLOR_RGB2BGR)
-        except Exception:
+            with mss.mss() as sct:
+                if region:
+                    monitor = {
+                        "left": region.left,
+                        "top": region.top,
+                        "width": region.width,
+                        "height": region.height,
+                    }
+                else:
+                    monitor = sct.monitors[0]
+                img = np.array(sct.grab(monitor))
+                # mss returns BGRA; convert to BGR for OpenCV
+                return cv2.cvtColor(img, cv2.COLOR_BGRA2BGR)
+        except Exception as e:
+            import sys
+            print(f"[Screenshot] Error: {e}", file=sys.stderr, flush=True)
             return None
 
     def open_directory(self, path: str) -> None:

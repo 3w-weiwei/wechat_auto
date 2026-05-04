@@ -39,8 +39,13 @@ class Handlers:
         if handler is None:
             return {"error": {"code": -32601, "message": f"Unknown method: {method}"}}
         try:
-            return handler(params)
+            import sys, traceback
+            print(f"[DISPATCH] method={method} params={params}", file=sys.stderr, flush=True)
+            result = handler(params)
+            print(f"[DISPATCH] method={method} result={result}", file=sys.stderr, flush=True)
+            return result
         except Exception as e:
+            traceback.print_exc(file=sys.stderr)
             return {"error": {"code": -32000, "message": str(e)}}
 
     # ─── Task Methods ───
@@ -244,6 +249,22 @@ class Handlers:
         from engine.domain.models import ThemeMode
         config.template_theme = ThemeMode(theme) if theme in ("light", "dark") else ThemeMode.LIGHT
         self.config_repo.save_config(config)
+        # Also save to config.json for template path resolution
+        import json, os
+        app_dir = self.platform.get_app_data_dir()
+        config_json = os.path.join(app_dir, "config.json")
+        try:
+            json_config = {}
+            if os.path.exists(config_json):
+                with open(config_json, encoding="utf-8") as f:
+                    json_config = json.load(f)
+            json_config["template_theme"] = theme
+            with open(config_json, "w", encoding="utf-8") as f:
+                json.dump(json_config, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+        # Also update WeChatPlatform directly
+        self.wechat._current_theme = theme
         self._on_log(f"[Config] Theme switched to {theme}")
         return {"theme": theme}
 

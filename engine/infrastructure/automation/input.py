@@ -53,3 +53,8 @@ class InputController:
     @staticmethod
     def send_enter() -> None:
         pyautogui.press("enter")
+
+    @staticmethod
+    def paste() -> None:
+        """Paste from clipboard (Ctrl+V)."""
+        pyautogui.hotkey("ctrl", "v")
