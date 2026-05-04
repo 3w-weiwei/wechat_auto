@@ -72,4 +72,4 @@ export interface LogEntry {
   timestamp: string;
 }
 
-export type EngineStatus = 'ready' | 'error' | 'not_found';
+export type EngineStatus = 'ready' | 'error' | 'not_found' | 'minimized';

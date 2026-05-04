@@ -1,0 +1,247 @@
+from __future__ import annotations
+
+from collections.abc import Callable
+from datetime import datetime
+
+from engine.application.task_manager import TaskManager
+from engine.domain.models import ContentItem, ContentType
+from engine.infrastructure.attachment_manager import AttachmentManager
+from engine.infrastructure.automation.wechat_platform import WeChatPlatform
+from engine.infrastructure.platform.base import PlatformAdapter
+from engine.infrastructure.storage.sqlite_repo import SQLiteConfigRepository, SQLiteTaskRepository
+
+
+class Handlers:
+    """JSON-RPC method handlers. Each method takes params dict and returns result."""
+
+    def __init__(
+        self,
+        task_manager: TaskManager,
+        task_repo: SQLiteTaskRepository,
+        config_repo: SQLiteConfigRepository,
+        attachment_manager: AttachmentManager,
+        platform: PlatformAdapter,
+        wechat: WeChatPlatform,
+        on_run_now: Callable[[list[str]], None],
+        on_log: Callable[[str], None],
+    ) -> None:
+        self.task_manager = task_manager
+        self.task_repo = task_repo
+        self.config_repo = config_repo
+        self.attachment_manager = attachment_manager
+        self.platform = platform
+        self.wechat = wechat
+        self._on_run_now = on_run_now
+        self._on_log = on_log
+
+    def dispatch(self, method: str, params: dict[str, object]) -> object:
+        handler = getattr(self, f"_handle_{method.replace('.', '_')}", None)
+        if handler is None:
+            return {"error": {"code": -32601, "message": f"Unknown method: {method}"}}
+        try:
+            return handler(params)
+        except Exception as e:
+            return {"error": {"code": -32000, "message": str(e)}}
+
+    # ─── Task Methods ───
+
+    def _handle_task_list(self, _params: dict[str, object]) -> object:
+        from engine.adapters.serializers import task_to_dict
+        tasks = self.task_manager.list_all()
+        return {"tasks": [task_to_dict(t) for t in tasks]}
+
+    def _handle_task_get(self, params: dict[str, object]) -> object:
+        from engine.adapters.serializers import task_to_dict
+        task = self.task_manager.get(str(params.get("id", "")))
+        if task is None:
+            return {"error": {"code": -32000, "message": "Task not found"}}
+        return {"task": task_to_dict(task)}
+
+    def _handle_task_create(self, params: dict[str, object]) -> object:
+        from engine.adapters.serializers import content_item_from_dict, task_to_dict
+
+        groups = params.get("groups", [])
+        slots = params.get("slots", [])
+        if isinstance(groups, str):
+            groups = [g.strip() for g in groups.replace("，", ",").split(",") if g.strip()]
+        if not groups:
+            return {"error": {"code": -32602, "message": "groups required"}}
+
+        # Build contents from params
+        contents_raw = params.get("contents", [])
+        contents = []
+        if isinstance(contents_raw, list):
+            for c in contents_raw:
+                if isinstance(c, dict):
+                    contents.append(content_item_from_dict(c))
+
+        # Build datetime strings from slots
+        datetime_strs = []
+        if isinstance(slots, list):
+            for slot in slots:
+                if isinstance(slot, dict):
+                    date = str(slot.get("date", datetime.now().strftime("%Y-%m-%d")))
+                    time = str(slot.get("time", "12:00"))
+                    datetime_strs.append(f"{date} {time}")
+
+        if not datetime_strs:
+            # Use single datetime param
+            dt = str(params.get("datetime", datetime.now().strftime("%Y-%m-%d %H:%M")))
+            datetime_strs = [dt]
+
+        if not contents:
+            # Use single content
+            content_type = str(params.get("type", "text"))
+            content_value = str(params.get("value", ""))
+            if content_value:
+                try:
+                    ct = ContentType(content_type)
+                except ValueError:
+                    ct = ContentType.TEXT
+                contents = [ContentItem(type=ct, value=content_value)]
+
+        tasks = self.task_manager.create_batch(
+            list(groups), datetime_strs, contents
+        )
+        return {"tasks": [task_to_dict(t) for t in tasks]}
+
+    def _handle_task_update(self, params: dict[str, object]) -> object:
+        from engine.adapters.serializers import content_item_from_dict, task_to_dict
+
+        task_id = str(params.get("id", ""))
+        task = self.task_manager.get(task_id)
+        if task is None:
+            return {"error": {"code": -32000, "message": "Task not found"}}
+
+        if "group" in params:
+            task.group = str(params["group"])
+        if "datetime" in params:
+            task.datetime = str(params["datetime"])
+        if "active" in params:
+            task.active = bool(params["active"])
+        if "contents" in params:
+            contents_raw = params["contents"]
+            if isinstance(contents_raw, list):
+                task.contents = [
+                    content_item_from_dict(c) if isinstance(c, dict) else ContentItem()
+                    for c in contents_raw
+                ]
+
+        self.task_manager.update(task)
+        return {"task": task_to_dict(task)}
+
+    def _handle_task_delete(self, params: dict[str, object]) -> object:
+        task_id = str(params.get("id", ""))
+        self.task_manager.delete(task_id)
+        return {"deleted": True}
+
+    def _handle_task_toggle(self, params: dict[str, object]) -> object:
+        task_id = str(params.get("id", ""))
+        state = self.task_manager.toggle(task_id)
+        if state is None:
+            return {"error": {"code": -32000, "message": "Task not found"}}
+        return {"task_id": task_id, "active": state}
+
+    def _handle_task_run_now(self, params: dict[str, object]) -> object:
+        task_id = str(params.get("id", ""))
+        self._on_run_now([task_id])
+        return {"queued": True}
+
+    # ─── Config Methods ───
+
+    def _handle_config_get(self, params: dict[str, object]) -> object:
+        key = str(params.get("key", ""))
+        if key:
+            return {"value": self.config_repo.get(key)}
+        return {"config": self.config_repo.get_all_config()}
+
+    def _handle_config_set(self, params: dict[str, object]) -> object:
+        key = str(params.get("key", ""))
+        value = params.get("value")
+        self.config_repo.set(key, value)
+        return {"ok": True}
+
+    # ─── Engine Methods ───
+
+    def _handle_engine_calibrate(self, _params: dict[str, object]) -> object:
+        ok = self.wechat.calibrate()
+        if ok:
+            region = self.wechat.get_wx_region()
+            dpi = self.platform.get_system_dpi()
+            config = self.config_repo.get_all_config()
+            from engine.domain.models import CalibrationData
+            if region:
+                config.calibration = CalibrationData(
+                    window_rect=region,
+                    dpi=dpi,
+                    screen_size=(1920, 1080),
+                    timestamp=datetime.now().isoformat(),
+                )
+            self.config_repo.set("calibration", {
+                "window_rect": [region.left, region.top, region.width, region.height] if region else [0, 0, 0, 0],
+                "screen_size": [1920, 1080],
+                "dpi": dpi,
+                "timestamp": datetime.now().isoformat(),
+            })
+            return {"status": "ready", "dpi": dpi}
+        return {"status": "error", "message": "WeChat window not found"}
+
+    def _handle_engine_status(self, _params: dict[str, object]) -> object:
+        info = self.wechat.locate_app()
+        if info is None:
+            return {"status": "not_found"}
+        if self.platform.is_window_minimized(info.hwnd):
+            return {"status": "minimized"}
+        return {"status": "ready"}
+
+    # ─── Attachment Methods ───
+
+    def _handle_attachment_list(self, _params: dict[str, object]) -> object:
+        from engine.adapters.serializers import attachment_info_to_dict
+        files = self.attachment_manager.get_attachments()
+        return {"attachments": [attachment_info_to_dict(f) for f in files]}
+
+    def _handle_attachment_stats(self, _params: dict[str, object]) -> object:
+        from engine.adapters.serializers import attachment_stats_to_dict
+        tasks = self.task_manager.list_all()
+        stats = self.attachment_manager.get_stats(tasks)
+        return {"stats": attachment_stats_to_dict(stats)}
+
+    def _handle_attachment_cleanup(self, _params: dict[str, object]) -> object:
+        tasks = self.task_manager.list_all()
+        removed = self.attachment_manager.cleanup_unreferenced(tasks)
+        self._on_log(f"[Attach] Cleaned {removed} unreferenced files")
+        return {"removed": removed}
+
+    def _handle_attachment_import(self, params: dict[str, object]) -> object:
+        src = str(params.get("path", ""))
+        dest = self.attachment_manager.import_file(src)
+        if dest is None:
+            return {"error": {"code": -32000, "message": "Import failed"}}
+        return {"path": dest}
+
+    def _handle_attachment_open_dir(self, _params: dict[str, object]) -> object:
+        self.platform.open_directory(self.attachment_manager._dir)
+        return {"ok": True}
+
+    # ─── Template Methods ───
+
+    def _handle_template_list(self, _params: dict[str, object]) -> object:
+        config = self.config_repo.get_all_config()
+        return {
+            "theme": config.template_theme.value,
+            "templates": config.templates,
+        }
+
+    def _handle_template_set_theme(self, params: dict[str, object]) -> object:
+        theme = str(params.get("theme", "light"))
+        config = self.config_repo.get_all_config()
+        from engine.domain.models import ThemeMode
+        config.template_theme = ThemeMode(theme) if theme in ("light", "dark") else ThemeMode.LIGHT
+        self.config_repo.save_config(config)
+        return {"theme": theme}
+
+    # ─── Log stream support ───
+
+    def _handle_log_stream(self, params: dict[str, object]) -> object:
+        return {"subscribed": True}

@@ -6,9 +6,9 @@
 
 ## 当前状态
 
-- **当前 Phase**: 0 — 工程基础（✅ 已完成）
-- **下一步**: Phase 1 — 引擎核心抽离
-- **最新更新**: 2026-05-04
+- **当前 Phase**: 5 — React UI（✅ 已完成）
+- **下一步**: Phase 6 — 桌面打包 (Electron)
+- **最新更新**: 2026-05-04 (Session 2)
 
 ---
 
@@ -61,5 +61,12 @@
 - 完成代码库全面分析（wechat_auto_v3.0.py 1670 行 + 微信视觉群发助手_v3.jsx 422 行）
 - 建立重构架构计划（Clean Architecture + Python engine + React UI + Electron）
 - 完成 Phase 0 全部 11 项任务
-- 当前：engine/domain/ 完整抽象层就绪，ui/ 骨架就绪，所有 lint 通过
-- 准备进入 Phase 1
+
+### 2026-05-04 (Session 2)
+- **Phase 1 完成**: AttachmentManager, platform abstraction, vision/input/clipboard/window_manager, WeChatPlatform, queue_runner 全部抽离
+- **Phase 2 完成**: SQLiteTaskRepository, SQLiteConfigRepository, FileStore (JSON→SQLite 迁移)
+- **Phase 3 完成**: event_bus, task_manager, batch_creator, scheduler
+- **Phase 4 完成**: WebSocket JSON-RPC 服务, handlers, serializers, main.py 入口
+- **Phase 5 完成**: React UI (api client, 3 hooks, Zustand store, TasksPage/CreatePage/SettingsPage, EditTaskDialog, TaskCard, ToggleSwitch, ContentPreview)
+- 所有 lint 通过 (ruff + tsc), engine 模块导入和逻辑验证通过, UI build 成功 (223KB JS, 24KB CSS)
+- 总计 25+ 新文件，~4000 行新代码
