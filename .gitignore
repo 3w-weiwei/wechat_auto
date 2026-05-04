@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+*.egg
+
+# Node / React
+node_modules/
+ui/dist/
+desktop/dist/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+
+# Test
+.pytest_cache/
+coverage/
+htmlcov/
+
+# Build artifacts
+*.spec
+release/
+
+# Runtime data (created at runtime, not committed)
+attachments/
+templates/
+*.db
+*.sqlite
+tasks.json
+config.json
+
+# uv
+uv.lock
+
+# Claude
+.claude/
