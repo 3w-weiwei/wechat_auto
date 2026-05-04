@@ -3,3 +3,11 @@
 @theme {
   --font-sans: 'Microsoft YaHei', 'Segoe UI', 'PingFang SC', ui-sans-serif, system-ui, sans-serif;
 }
+
+/* Electron frameless window drag support */
+.drag-region {
+  -webkit-app-region: drag;
+}
+.no-drag {
+  -webkit-app-region: no-drag;
+}

@@ -6,10 +6,13 @@ let mainWindow = null;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 450,
-    height: 820,
+    width: 420,
+    height: 800,
     resizable: false,
-    frame: true,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    skipTaskbar: false,
     title: '智推助手',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),

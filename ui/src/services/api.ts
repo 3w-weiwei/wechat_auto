@@ -11,7 +11,7 @@ class ApiClient {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private _connected = false;
 
-  constructor(url = 'ws://localhost:8765') {
+  constructor(url = 'ws://127.0.0.1:9876') {
     this.url = url;
   }
 

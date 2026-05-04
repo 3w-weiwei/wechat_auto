@@ -3,6 +3,7 @@ from __future__ import annotations
 import random
 import threading
 import time
+import traceback
 from collections.abc import Callable
 
 from engine.domain.models import ContentType, Task
@@ -29,6 +30,7 @@ class QueueRunner:
     def run(self, tasks: list[Task]) -> None:
         """Start executing tasks in a background thread."""
         self._stop_event.clear()
+        self._log(f"[队列] 开始执行 {len(tasks)} 个任务")
         self._thread = threading.Thread(target=self._execute, args=(tasks,), daemon=True)
         self._thread.start()
 
@@ -46,43 +48,55 @@ class QueueRunner:
 
     def _execute(self, tasks: list[Task]) -> None:
         total = len(tasks)
-        self._log(f"[Queue] === Serial execution of {total} tasks ===")
+        self._log(f"[队列] ═══ 串行执行 {total} 个任务 ═══")
         success_count = 0
         fail_count = 0
 
         for idx, task in enumerate(tasks):
             if self._stop_event.is_set():
+                self._log("[队列] 收到停止信号，中断执行")
                 break
 
             tid = task.id
             contents = task.contents
-            self._log(f"[Queue] [{idx + 1}/{total}] > {task.group}")
+            self._log(f"[队列] [{idx + 1}/{total}] ▶ 开始: {task.group} (内容 {len(contents)} 条)")
 
             try:
-                # Activate WeChat (retry up to 3 times)
+                # Step 1: Activate WeChat
+                self._log(f"[队列] 步骤1: 激活微信窗口...")
                 activated = False
                 for attempt in range(3):
                     if self._platform.activate():
                         activated = True
+                        self._log(f"[队列] ✅ 微信窗口已激活")
                         break
-                    self._log(f"[Retry] {attempt + 1}/3...")
+                    self._log(f"[队列] ⚠️ 激活失败，重试 {attempt + 1}/3...")
                     time.sleep(2)
                 if not activated:
-                    self._task_done(tid, False, f"WeChat not found -> {task.group}")
+                    self._task_done(tid, False, f"未能激活微信窗口")
                     fail_count += 1
                     continue
 
-                # Calibrate window position
+                # Step 2: Calibrate
+                self._log(f"[队列] 步骤2: 校准窗口位置...")
+                time.sleep(0.5)  # let window settle
                 if not self._platform.calibrate():
-                    self._task_done(tid, False, f"Calibration failed -> {task.group}")
+                    self._task_done(tid, False, f"窗口校准失败")
                     fail_count += 1
                     continue
 
-                # Navigate to chat
-                self._platform.navigate_to_chat(task.group)
-                time.sleep(0.6)
+                # Step 3: Navigate to chat
+                self._log(f"[队列] 步骤3: 搜索并进入群聊 '{task.group}'")
+                region = self._platform.get_wx_region()
+                if region:
+                    self._log(f"[队列] 微信窗口区域: ({region.left},{region.top}) {region.width}x{region.height}")
+                nav_ok = self._platform.navigate_to_chat(task.group)
+                if not nav_ok:
+                    self._log(f"[队列] ⚠️ 导航可能不完整，继续发送...")
+                time.sleep(0.8)
 
-                # Send each content item
+                # Step 4: Send each content item
+                self._log(f"[队列] 步骤4: 发送 {len(contents)} 条内容")
                 sent = 0
                 for i, item in enumerate(contents):
                     if self._stop_event.is_set():
@@ -90,30 +104,40 @@ class QueueRunner:
                     ct = item.type
                     cv = item.value
                     if not cv:
+                        self._log(f"[队列]   #{i + 1} 跳过空内容")
                         continue
 
-                    label = cv[:30] if ct == ContentType.TEXT else f"[{item.type.value}] {cv[-40:]}"
-                    self._log(f"[Send] #{i + 1}/{len(contents)} {label}")
+                    label = cv[:40] if ct == ContentType.TEXT else f"[{item.type.value}] {cv[-40:]}"
+                    self._log(f"[队列]   #{i + 1}/{len(contents)} 发送: {label}")
 
-                    if self._platform.send_content(ct, cv):
+                    ok = self._platform.send_content(ct, cv)
+                    if ok:
                         sent += 1
                     else:
-                        self._log(f"[Error] Failed to send: {cv}")
+                        self._log(f"[队列]   ❌ 发送失败: {cv}")
 
                     if i < len(contents) - 1:
-                        time.sleep(1.5 + random.uniform(0.3, 0.8))
+                        delay = 1.5 + random.uniform(0.3, 0.8)
+                        self._log(f"[队列]   间隔 {delay:.1f}s...")
+                        time.sleep(delay)
 
-                self._task_done(tid, True, f"Sent {sent}/{len(contents)} -> {task.group}")
+                msg = f"已发送 {sent}/{len(contents)} 条 → {task.group}"
+                self._log(f"[队列] ✅ {msg}")
+                self._task_done(tid, True, msg)
                 success_count += 1
 
-            except Exception as e:
-                self._task_done(tid, False, f"{e} -> {task.group}")
+            except Exception:
+                tb = traceback.format_exc()
+                self._log(f"[队列] ❌ 异常:\n{tb}")
+                self._task_done(tid, False, f"执行异常")
                 fail_count += 1
 
             if idx < total - 1:
-                time.sleep(2.0 + random.uniform(0.5, 1.5))
+                delay = 2.0 + random.uniform(0.5, 1.5)
+                self._log(f"[队列] 任务间隔 {delay:.1f}s...")
+                time.sleep(delay)
 
-        self._log(f"[Queue] === Done: {success_count} OK, {fail_count} FAIL ===")
+        self._log(f"[队列] ═══ 完毕: 成功 {success_count}, 失败 {fail_count} ═══")
         if self._on_all_done:
             self._on_all_done()
 

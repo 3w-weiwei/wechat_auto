@@ -1,21 +1,17 @@
 #!/usr/bin/env python3
-"""智推助手 (ZhiTui Assistant) — Engine entry point.
-
-Starts the WebSocket JSON-RPC server that the React UI connects to.
-"""
+"""智推助手 (ZhiTui Assistant) — Engine entry point."""
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
+import queue
 import sys
 from collections import deque
 from datetime import datetime
 
-# Ensure engine package is importable
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-import contextlib
 
 from engine.adapters.handlers import Handlers
 from engine.adapters.ws_server import WebSocketServer
@@ -38,133 +34,197 @@ def _get_app_data_dir() -> str:
     return os.path.dirname(os.path.abspath(__file__))
 
 
-def main() -> None:
-    app_dir = _get_app_data_dir()
-    os.makedirs(app_dir, exist_ok=True)
+class EngineApp:
+    """Holds all engine state and provides the execution entry points."""
 
-    db_path = os.path.join(app_dir, "wechat_auto.db")
-    attachments_dir = os.path.join(app_dir, "attachments")
-    templates_dir = os.path.join(app_dir, "templates")
-    os.makedirs(attachments_dir, exist_ok=True)
-    os.makedirs(templates_dir, exist_ok=True)
+    def __init__(self) -> None:
+        self.app_dir = _get_app_data_dir()
+        os.makedirs(self.app_dir, exist_ok=True)
 
-    # Infrastructure
-    platform = WindowsPlatformAdapter()
-    task_repo = SQLiteTaskRepository(db_path)
-    config_repo = SQLiteConfigRepository(db_path)
-    attachment_manager = AttachmentManager(attachments_dir)
+        db_path = os.path.join(self.app_dir, "wechat_auto.db")
+        attachments_dir = os.path.join(self.app_dir, "attachments")
+        templates_dir = os.path.join(self.app_dir, "templates")
+        os.makedirs(attachments_dir, exist_ok=True)
+        os.makedirs(templates_dir, exist_ok=True)
 
-    # Migrate legacy JSON -> SQLite on first run
-    tasks_json = os.path.join(app_dir, "tasks.json")
-    if os.path.exists(tasks_json) and not task_repo.get_all():
-        count = FileStore.migrate_json_to_sqlite(tasks_json, task_repo, config_repo)
-        print(f"[Migrate] Imported {count} tasks from tasks.json")
+        self.platform = WindowsPlatformAdapter()
+        self.task_repo = SQLiteTaskRepository(db_path)
+        self.config_repo = SQLiteConfigRepository(db_path)
+        self.attachment_manager = AttachmentManager(attachments_dir)
 
-    # Domain services
-    event_bus = EventBus()
-    task_manager = TaskManager(task_repo, event_bus)
+        # Migrate legacy
+        tasks_json = os.path.join(self.app_dir, "tasks.json")
+        if os.path.exists(tasks_json) and not self.task_repo.get_all():
+            count = FileStore.migrate_json_to_sqlite(tasks_json, self.task_repo, self.config_repo)
+            print(f"[Migrate] Imported {count} tasks from tasks.json")
 
-    # Vision + WeChat
-    config = config_repo.get_all_config()
-    dpi = platform.get_system_dpi()
-    vision = VisionEngine(
-        dpi=dpi,
-        template_source_dpi=config.template_source_dpi,
-    )
-    if config.learned_scales:
-        vision.set_learned_scales({
-            k: {"scale": v.scale, "dpi": v.dpi, "time": v.timestamp}
-            for k, v in config.learned_scales.items()
+        self.event_bus = EventBus()
+        self.task_manager = TaskManager(self.task_repo, self.event_bus)
+
+        config = self.config_repo.get_all_config()
+        dpi = self.platform.get_system_dpi()
+        self.vision = VisionEngine(dpi=dpi, template_source_dpi=config.template_source_dpi)
+        if config.learned_scales:
+            self.vision.set_learned_scales({
+                k: {"scale": v.scale, "dpi": v.dpi, "time": v.timestamp}
+                for k, v in config.learned_scales.items()
+            })
+
+        # Log broadcast queue (thread-safe)
+        self._log_queue: queue.Queue[dict[str, object]] = queue.Queue()
+        self._ws_server: WebSocketServer | None = None
+
+        # Task execution state
+        self._pending_tasks: deque[str] = deque()
+        self._queue_runner: QueueRunner | None = None
+        self._scheduler: Scheduler | None = None
+
+        # WeChat platform (needs _log defined first)
+        self.wechat = WeChatPlatform(self.platform, self.vision, self._log)
+
+        self._log("[系统] 智推助手 v4.0 启动中...")
+        self._log(f"[系统] 数据目录: {self.app_dir}")
+        self._log(f"[系统] DPI: {dpi} ({self.platform.get_dpi_scale():.2f}x)")
+        self._log(f"[系统] 当前主题: {config.template_theme.value}")
+        self._log(f"[系统] 已加载 {self.task_repo.get_all().__len__()} 个任务")
+
+    def _log(self, msg: str, level: str = "info") -> None:
+        ts = datetime.now().strftime('%H:%M:%S')
+        formatted = f"[{ts}] {msg}"
+        print(formatted, flush=True)
+        self._log_queue.put({
+            "level": level, "message": msg,
+            "timestamp": datetime.now().isoformat(),
         })
 
-    log_queue: deque[str] = deque(maxlen=500)
-    def on_log(msg: str) -> None:
-        log_queue.append(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
-        print(msg)
+    def set_ws_server(self, ws: WebSocketServer) -> None:
+        self._ws_server = ws
 
-    wechat = WeChatPlatform(platform, vision, on_log)
+    # ─── Task execution (called from WebSocket handler thread) ───
 
-    # Queue Runner
-    pending_tasks: deque[str] = deque()
-    queue_runner: QueueRunner | None = None
-
-    def on_task_done(task_id: str, success: bool, message: str) -> None:
-        if success:
-            task_manager.set_active(task_id, False)
-        scheduler.remove_fired(task_id)
-        on_log(f"[Queue] Task {task_id}: {'OK' if success else 'FAIL'} - {message}")
-
-    def on_all_done() -> None:
-        nonlocal queue_runner
-        on_log("[Queue] All tasks complete")
-        queue_runner = None
-        # Start next batch if pending
-        _start_next_batch()
-
-    def _start_next_batch() -> None:
-        nonlocal queue_runner
-        if pending_tasks and queue_runner is None:
-            batch_ids = []
-            while pending_tasks:
-                batch_ids.append(pending_tasks.popleft())
-            tasks = [task_manager.get(tid) for tid in batch_ids]
-            tasks = [t for t in tasks if t is not None]
-            if tasks:
-                queue_runner = QueueRunner(wechat, on_log, on_task_done, on_all_done)
-                queue_runner.run(tasks)
-
-    def on_run_now(task_ids: list[str]) -> None:
+    def enqueue_manual(self, task_ids: list[str]) -> None:
+        """Enqueue tasks for immediate execution (called from WS handler)."""
+        self._log(f"[系统] 收到手动执行请求: {task_ids}")
         for tid in task_ids:
-            if tid not in pending_tasks:
-                pending_tasks.append(tid)
-        _start_next_batch()
+            if tid not in self._pending_tasks:
+                self._pending_tasks.append(tid)
+        self._try_start_batch()
 
-    def on_tasks_due(tasks: list) -> None:
+    def enqueue_scheduled(self, tasks: list) -> None:
+        """Enqueue due tasks from scheduler."""
+        self._log(f"[调度] 到期 {len(tasks)} 个任务")
         for t in tasks:
-            if t.id not in pending_tasks:
-                pending_tasks.append(t.id)
-        _start_next_batch()
+            if t.id not in self._pending_tasks:
+                self._pending_tasks.append(t.id)
+        self._try_start_batch()
 
-    # Scheduler
-    scheduler = Scheduler(task_repo, on_tasks_due, interval_seconds=5.0)
+    def _try_start_batch(self) -> None:
+        """Start executing the next batch if idle."""
+        print(f"DEBUG _try_start_batch: pending={len(self._pending_tasks)} qr_active={self._queue_runner is not None}", file=sys.stderr, flush=True)
 
-    # WeChat state monitor
-    async def wx_monitor() -> None:
+        if not self._pending_tasks:
+            print("DEBUG: no pending tasks, returning", file=sys.stderr, flush=True)
+            return
+        if self._queue_runner is not None:
+            print("DEBUG: queue_runner already active, returning", file=sys.stderr, flush=True)
+            return
+
+        batch_ids = []
+        while self._pending_tasks:
+            batch_ids.append(self._pending_tasks.popleft())
+
+        self._log(f"[系统] 准备执行 {len(batch_ids)} 个任务: {batch_ids}")
+        tasks = [self.task_manager.get(tid) for tid in batch_ids]
+        tasks = [t for t in tasks if t is not None]
+
+        self._log(f"[系统] 加载了 {len(tasks)} 个有效任务")
+        if not tasks:
+            self._log("[系统] ⚠️ 没有有效任务", "warn")
+            return
+
+        for t in tasks:
+            self._log(f"[系统]   id={t.id[:8]}.. 群={t.group} 内容={len(t.contents)}条 时间={t.datetime}")
+
+        def on_done(tid: str, ok: bool, msg: str) -> None:
+            if ok:
+                self.task_manager.set_active(tid, False)
+            if self._scheduler:
+                self._scheduler.remove_fired(tid)
+            self._log(f"[队列] {tid[:8]}.. {'✅' if ok else '❌'} {msg}",
+                      "success" if ok else "error")
+
+        def on_all() -> None:
+            self._log("[队列] 全部任务执行完毕")
+            self._queue_runner = None
+            self._try_start_batch()
+
+        self._queue_runner = QueueRunner(self.wechat, self._log, on_done, on_all)
+        self._queue_runner.run(tasks)
+        self._log(f"[系统] 队列已启动，{len(tasks)} 个任务开始执行")
+
+    # ─── Async helpers ───
+
+    async def broadcast_logs(self) -> None:
         while True:
             try:
-                info = wechat.locate_app()
+                while not self._log_queue.empty():
+                    entry = self._log_queue.get_nowait()
+                    if self._ws_server:
+                        await self._ws_server.broadcast("log", entry)
+            except Exception:
+                pass
+            await asyncio.sleep(0.1)
+
+    async def monitor_wechat(self) -> None:
+        while True:
+            try:
+                info = self.wechat.locate_app()
                 if info is None:
                     status = "not_found"
-                elif platform.is_window_minimized(info.hwnd):
+                elif self.platform.is_window_minimized(info.hwnd):
                     status = "minimized"
                 else:
                     status = "ready"
-                await ws_server.broadcast("engine.status", {"status": status})
+                if self._ws_server:
+                    await self._ws_server.broadcast("engine.status", {"status": status})
             except Exception:
                 pass
             await asyncio.sleep(3.0)
 
-    # Build handlers + server
+    def start_scheduler(self) -> None:
+        self._scheduler = Scheduler(self.task_repo, self.enqueue_scheduled, interval_seconds=5.0)
+        self._scheduler.start()
+
+    def stop(self) -> None:
+        if self._scheduler:
+            self._scheduler.stop()
+        if self._queue_runner:
+            self._queue_runner.stop()
+
+
+def main() -> None:
+    app = EngineApp()
+
     handlers = Handlers(
-        task_manager=task_manager,
-        task_repo=task_repo,
-        config_repo=config_repo,
-        attachment_manager=attachment_manager,
-        platform=platform,
-        wechat=wechat,
-        on_run_now=on_run_now,
-        on_log=on_log,
+        task_manager=app.task_manager,
+        task_repo=app.task_repo,
+        config_repo=app.config_repo,
+        attachment_manager=app.attachment_manager,
+        platform=app.platform,
+        wechat=app.wechat,
+        on_run_now=app.enqueue_manual,
+        on_log=app._log,
     )
 
-    ws_server = WebSocketServer(handlers, on_log=on_log)
+    ws_server = WebSocketServer(handlers, host="127.0.0.1", port=9876, on_log=app._log)
+    app.set_ws_server(ws_server)
 
-    # Async event loop
     async def run() -> None:
         await ws_server.start()
-        scheduler.start()
-        asyncio.create_task(wx_monitor())
-        on_log("[Engine] ZhiTui Assistant started")
-        # Keep running
+        app.start_scheduler()
+        asyncio.create_task(app.monitor_wechat())
+        asyncio.create_task(app.broadcast_logs())
+        app._log("[系统] 引擎启动完成，等待指令...")
         stop_event = asyncio.Event()
         with contextlib.suppress(asyncio.CancelledError):
             await stop_event.wait()
@@ -172,11 +232,9 @@ def main() -> None:
     try:
         asyncio.run(run())
     except KeyboardInterrupt:
-        on_log("[Engine] Shutting down...")
+        app._log("[系统] 正在关闭...")
     finally:
-        scheduler.stop()
-        if queue_runner:
-            queue_runner.stop()
+        app.stop()
 
 
 if __name__ == "__main__":
