@@ -58,6 +58,9 @@ for line in out.splitlines():
         print(f'killed {pid}')
 "
 ```
+```bash
+uv run python -c "import subprocess; out = subprocess.run(['netstat','-ano'], capture_output=True).stdout; [subprocess.run(['taskkill','/f','/pid',str(int(line.split()[-1]))]) for line in out.splitlines() if b':9876' in line]"
+```
 
 ## 端口
 
