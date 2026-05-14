@@ -53,6 +53,11 @@ class SQLiteTaskRepository(ITaskRepository):
                 CREATE INDEX IF NOT EXISTS idx_task_contents_task
                     ON task_contents(task_id);
             """)
+            # Migration: add category column to task_contents if not exists
+            try:
+                conn.execute("ALTER TABLE task_contents ADD COLUMN category TEXT NOT NULL DEFAULT ''")
+            except sqlite3.OperationalError:
+                pass  # column already exists
 
     def get_all(self) -> list[Task]:
         with self._connect() as conn:
@@ -136,8 +141,8 @@ class SQLiteTaskRepository(ITaskRepository):
             conn.execute("DELETE FROM task_contents WHERE task_id = ?", (task.id,))
             for i, c in enumerate(task.contents):
                 conn.execute(
-                    "INSERT INTO task_contents (task_id, sort_order, content_type, content_value) VALUES (?, ?, ?, ?)",
-                    (task.id, i, c.type.value, c.value),
+                    "INSERT INTO task_contents (task_id, sort_order, content_type, content_value, category) VALUES (?, ?, ?, ?, ?)",
+                    (task.id, i, c.type.value, c.value, c.category),
                 )
 
     def save_all(self, tasks: list[Task]) -> None:
@@ -160,6 +165,7 @@ class SQLiteTaskRepository(ITaskRepository):
                 type=ContentType(r["content_type"]),
                 value=r["content_value"],
                 sort_order=r["sort_order"],
+                category=r["category"],
             )
             for r in rows
         ]

@@ -10,9 +10,12 @@ class ApiClient {
   private handlers: Map<string, Set<MessageHandler>> = new Map();
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private _connected = false;
+  private _whenConnected: Promise<void>;
+  private _resolveConnected: (() => void) | null = null;
 
   constructor(url = 'ws://127.0.0.1:9876') {
     this.url = url;
+    this._whenConnected = new Promise((resolve) => { this._resolveConnected = resolve; });
   }
 
   get connected() { return this._connected; }
@@ -23,10 +26,12 @@ class ApiClient {
       this.ws = new WebSocket(this.url);
       this.ws.onopen = () => {
         this._connected = true;
+        this._resolveConnected?.();
         this.emit('connection', { connected: true });
       };
       this.ws.onclose = () => {
         this._connected = false;
+        this._whenConnected = new Promise((resolve) => { this._resolveConnected = resolve; });
         this.pending.forEach(({ reject }) => reject(new Error('Connection closed')));
         this.pending.clear();
         this.emit('connection', { connected: false });
@@ -61,7 +66,14 @@ class ApiClient {
 
   async call(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      throw new Error('Not connected');
+      try {
+        await Promise.race([
+          this._whenConnected,
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Connection timeout')), 10000)),
+        ]);
+      } catch {
+        throw new Error('Not connected');
+      }
     }
     const id = ++this.reqId;
     const req: JsonRpcRequest = { id, method, params };

@@ -30,6 +30,7 @@ class ContentItem:
     type: ContentType
     value: str  # text content or file path
     sort_order: int = 0
+    category: str = ""  # 注射美容 / 美容皮肤科 / 美容外科
 
     def is_text(self) -> bool:
         return self.type == ContentType.TEXT

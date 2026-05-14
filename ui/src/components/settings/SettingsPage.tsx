@@ -35,12 +35,30 @@ export function SettingsPage() {
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [previews, setPreviews] = useState<Record<string, TemplatePreview>>({});
   const [templateOpen, setTemplateOpen] = useState(false);
+  const [sourceDpi, setSourceDpi] = useState(144);
 
   useEffect(() => {
     fetchAttachmentStats();
     loadTheme();
     loadPreviews();
+    loadSourceDpi();
   }, []);
+
+  const loadSourceDpi = async () => {
+    try {
+      const result = await apiClient.call('config.get', { key: 'template_source_dpi' }) as { value: number };
+      if (result.value) setSourceDpi(result.value);
+    } catch { /* use default 144 */ }
+  };
+
+  const handleSetSourceDpi = async () => {
+    try {
+      await apiClient.call('config.set', { key: 'template_source_dpi', value: sourceDpi });
+      addLog('success', `模板源 DPI 已更新为 ${sourceDpi}`);
+    } catch (e) {
+      addLog('error', `设置失败: ${e}`);
+    }
+  };
 
   const loadTheme = async () => {
     try {
@@ -161,6 +179,30 @@ export function SettingsPage() {
             <Moon size={20} className={theme === 'dark' ? 'text-indigo-500 mb-1' : 'text-gray-400 mb-1'} />
             <span className="text-xs font-bold text-gray-700">深色模式</span>
           </button>
+        </div>
+
+        {/* Template source DPI */}
+        <div className="flex items-center justify-between py-2 mb-2">
+          <div>
+            <div className="text-sm font-bold text-gray-700">模板源 DPI</div>
+            <div className="text-[10px] text-gray-400">模板截图时的显示器 DPI</div>
+          </div>
+          <div className="flex items-center space-x-2">
+            <input
+              type="number"
+              value={sourceDpi}
+              onChange={(e) => setSourceDpi(Number(e.target.value))}
+              className="w-16 text-center text-sm border border-gray-200 rounded-md py-1"
+              min={72}
+              max={480}
+            />
+            <button
+              onClick={handleSetSourceDpi}
+              className="text-xs px-3 py-1 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors"
+            >
+              保存
+            </button>
+          </div>
         </div>
 
         {/* Template preview rows */}

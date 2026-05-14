@@ -12,6 +12,10 @@ interface Props {
 }
 
 export function TaskCard({ task, onToggle, onRunNow, onEdit, onDelete }: Props) {
+  const now = new Date();
+  const taskDate = new Date(task.datetime);
+  const isExpired = taskDate < now;
+
   const getIcon = () => {
     if (task.contents.length > 1) return <Layers size={18} />;
     const first = task.contents[0];
@@ -22,7 +26,11 @@ export function TaskCard({ task, onToggle, onRunNow, onEdit, onDelete }: Props) 
   };
 
   return (
-    <div className={`bg-white rounded-2xl p-4 shadow-sm border transition-all ${task.active ? 'border-green-100 shadow-green-50/30' : 'border-gray-200 opacity-70'}`}>
+    <div className={`bg-white rounded-2xl p-4 shadow-sm border transition-all ${
+      isExpired ? 'border-gray-200 opacity-50' :
+      task.active ? 'border-green-100 shadow-green-50/30' :
+      'border-gray-200 opacity-70'
+    }`}>
       <div className="flex justify-between items-start mb-3">
         <div className="flex items-center space-x-3">
           <div className={`p-2 rounded-lg ${task.contents.length > 1 ? 'bg-orange-50 text-orange-500' : 'bg-blue-50 text-blue-500'}`}>
@@ -34,6 +42,9 @@ export function TaskCard({ task, onToggle, onRunNow, onEdit, onDelete }: Props) 
               <span className="flex items-center text-xs text-gray-500">
                 <Calendar size={12} className="mr-1" /> {task.datetime}
               </span>
+              {isExpired && (
+                <span className="text-[10px] font-bold text-red-400 bg-red-50 px-1.5 py-0.5 rounded">已过期</span>
+              )}
               <span className="text-[10px] font-bold text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded">
                 {task.contents.length} 条
               </span>

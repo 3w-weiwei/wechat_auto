@@ -40,6 +40,7 @@ def content_item_to_dict(item: ContentItem) -> dict[str, object]:
         "type": item.type.value,
         "value": item.value,
         "sort_order": item.sort_order,
+        "category": item.category,
     }
 
 
@@ -54,6 +55,7 @@ def content_item_from_dict(data: dict[str, object]) -> ContentItem:
         type=ct,
         value=str(data.get("value", "")),
         sort_order=int(data.get("sort_order", 0)),
+        category=str(data.get("category", "")),
     )
 
 

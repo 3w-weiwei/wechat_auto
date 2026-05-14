@@ -18,26 +18,32 @@ from engine.infrastructure.platform.base import PlatformAdapter
 class WeChatPlatform(IMessagingPlatform):
     """WeChat desktop automation via computer vision + keyboard/mouse simulation."""
 
-    name = "微信"
+    CANDIDATE_TITLES = ["微信", "WeChat"]
+    _DEBUG = os.environ.get("WECHAT_AUTO_DEBUG", "") == "1"
 
     def __init__(
         self,
         platform: PlatformAdapter,
         vision: VisionEngine,
+        theme: str = "light",
         log_callback: Callable[[str], None] | None = None,
     ) -> None:
         self._platform = platform
         self._vision = vision
+        self._theme = theme
         self._log_callback = log_callback
         self._wx_region: WindowRect | None = None
         self._wx_hwnd: int | None = None
-        self._current_theme: str = "light"
 
     def is_available(self) -> bool:
         return self.locate_app() is not None
 
     def locate_app(self) -> WindowInfo | None:
-        return self._platform.find_window_by_title(self.name)
+        for title in self.CANDIDATE_TITLES:
+            info = self._platform.find_window_by_title(title)
+            if info is not None:
+                return info
+        return None
 
     def get_required_theme(self) -> str | None:
         return "light"
@@ -98,22 +104,22 @@ class WeChatPlatform(IMessagingPlatform):
             self._log("[导航] ❌ 截图失败")
             return False
 
-        # DEBUG: save screenshot for inspection
-        import cv2, tempfile
-        debug_path = os.path.join(tempfile.gettempdir(), "wechat_auto_debug_screenshot.png")
-        cv2.imwrite(debug_path, scr)
-        self._log(f"[调试] 截图已保存: {debug_path} ({scr.shape[1]}x{scr.shape[0]})")
+        if self._DEBUG:
+            import cv2 as _cv2d, tempfile as _tmp
+            debug_path = os.path.join(_tmp.gettempdir(), "wechat_auto_debug_screenshot.png")
+            _cv2d.imwrite(debug_path, scr)
+            self._log(f"[调试] 截图已保存: {debug_path} ({scr.shape[1]}x{scr.shape[0]})")
 
         # Step 1: Click search box
         search_tpl = self._get_template_path("search")
         search_clicked = False
         if search_tpl:
             self._log(f"[导航] 匹配搜索框: {os.path.basename(search_tpl)}")
-            # DEBUG: save template for inspection
-            tpl_debug = os.path.join(tempfile.gettempdir(), "wechat_auto_debug_template.png")
-            import shutil
-            shutil.copy(search_tpl, tpl_debug)
-            self._log(f"[调试] 模板已复制: {tpl_debug}")
+            if self._DEBUG:
+                import tempfile as _tmp2, shutil
+                tpl_debug = os.path.join(_tmp2.gettempdir(), "wechat_auto_debug_template.png")
+                shutil.copy(search_tpl, tpl_debug)
+                self._log(f"[调试] 模板已复制: {tpl_debug}")
             m = self._vision.match_template(scr, search_tpl)
             if m is not None:
                 cx = self._wx_region.left + m.x + m.width // 2
@@ -127,9 +133,9 @@ class WeChatPlatform(IMessagingPlatform):
             self._log("[导航] ⚠️ 搜索框模板不存在")
 
         if not search_clicked:
-            # Fallback: click top-center area where search usually is
+            # Fallback: click top-center area where search usually is (~7% from top)
             cx = self._wx_region.left + int(self._wx_region.width * 0.5)
-            cy = self._wx_region.top + 60
+            cy = self._wx_region.top + int(self._wx_region.height * 0.07)
             self._log(f"[导航] 备选点击搜索区: ({cx},{cy})")
             InputController.click(cx, cy)
 
@@ -223,7 +229,7 @@ class WeChatPlatform(IMessagingPlatform):
             if m is not None and m.confidence > best_score:
                 best_score = m.confidence
                 best_name = key
-                best_pos = (m.x + m.width // 2, m.y + m.height + 20)
+                best_pos = (m.x + m.width // 2, m.y + int(m.height * 1.3))
         if best_pos:
             self._log(f"[识别] '{best_name}' (置信度={best_score:.3f})")
         return best_pos
@@ -233,22 +239,20 @@ class WeChatPlatform(IMessagingPlatform):
 
         engine_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         templates_dir = os.path.join(engine_dir, "templates")
+        theme = self._theme
+        fallback_theme = "dark" if theme == "light" else "light"
 
-        config_path = os.path.join(self._platform.get_app_data_dir(), "config.json")
-        if os.path.exists(config_path):
-            try:
-                with open(config_path, encoding="utf-8") as f:
-                    cfg = json.load(f)
-                self._current_theme = cfg.get("template_theme", "light")
-            except Exception:
-                pass
-
-        fallback_theme = "dark" if self._current_theme == "light" else "light"
-
-        for th in (self._current_theme, fallback_theme):
+        for th in (theme, fallback_theme):
             local_path = os.path.join(templates_dir, f"{key}_{th}.png")
             if os.path.exists(local_path):
                 return local_path
+            app_data_tpl = os.path.join(
+                self._platform.get_app_data_dir(), "templates", f"{key}_{th}.png"
+            )
+            if os.path.exists(app_data_tpl):
+                return app_data_tpl
+            # Check custom template paths from config.json (legacy compat)
+            config_path = os.path.join(self._platform.get_app_data_dir(), "config.json")
             if os.path.exists(config_path):
                 try:
                     with open(config_path, encoding="utf-8") as f:
@@ -258,11 +262,6 @@ class WeChatPlatform(IMessagingPlatform):
                         return tp
                 except Exception:
                     pass
-            app_data_tpl = os.path.join(
-                self._platform.get_app_data_dir(), "templates", f"{key}_{th}.png"
-            )
-            if os.path.exists(app_data_tpl):
-                return app_data_tpl
 
         return ""
 

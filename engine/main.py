@@ -12,10 +12,11 @@ except Exception:
     try:
         ctypes.windll.user32.SetProcessDPIAware()
     except Exception:
-        pass
+        print("[WARNING] DPI awareness could not be set — screen coordinates may be wrong",
+              file=sys.stderr, flush=True)
 
 import asyncio
-import contextlib
+
 import os
 import queue
 import sys
@@ -91,7 +92,7 @@ class EngineApp:
         self._scheduler: Scheduler | None = None
 
         # WeChat platform (needs _log defined first)
-        self.wechat = WeChatPlatform(self.platform, self.vision, self._log)
+        self.wechat = WeChatPlatform(self.platform, self.vision, config.template_theme.value, self._log)
 
         self._log("[系统] 智推助手 v4.0 启动中...")
         self._log(f"[系统] 数据目录: {self.app_dir}")
@@ -242,13 +243,17 @@ def main() -> None:
         asyncio.create_task(app.broadcast_logs())
         app._log("[系统] 引擎启动完成，等待指令...")
         stop_event = asyncio.Event()
-        with contextlib.suppress(asyncio.CancelledError):
+        try:
             await stop_event.wait()
+        except asyncio.CancelledError:
+            app._log("[系统] 正在关闭...")
+        finally:
+            await ws_server.stop()
 
     try:
         asyncio.run(run())
     except KeyboardInterrupt:
-        app._log("[系统] 正在关闭...")
+        pass  # already logged inside run()
     finally:
         app.stop()
 

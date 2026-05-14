@@ -36,6 +36,31 @@ class AttachmentManager(IAttachmentManager):
         except OSError:
             return None
 
+    def import_from_data(self, filename: str, data_b64: str) -> str | None:
+        """Import file from base64-encoded data. Returns absolute path on success."""
+        import base64
+
+        try:
+            raw = base64.b64decode(data_b64)
+        except Exception:
+            return None
+        if not raw:
+            return None
+        h = hashlib.md5(raw).hexdigest()[:8]
+        ext = os.path.splitext(filename)[1].lower()
+        orig_name = os.path.splitext(os.path.basename(filename))[0]
+        safe_name = "".join(c for c in orig_name if c.isalnum() or c in "._- ")[:30]
+        dest_name = f"{h}_{safe_name}{ext}"
+        dest_path = os.path.join(self._dir, dest_name)
+        if os.path.exists(dest_path):
+            return os.path.abspath(dest_path)
+        try:
+            with open(dest_path, "wb") as f:
+                f.write(raw)
+            return os.path.abspath(dest_path)
+        except OSError:
+            return None
+
     def get_attachments(self) -> list[AttachmentInfo]:
         if not os.path.exists(self._dir):
             return []

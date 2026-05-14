@@ -178,18 +178,19 @@ class Handlers:
         if ok:
             region = self.wechat.get_wx_region()
             dpi = self.platform.get_system_dpi()
+            screen_size = self.platform.get_screen_size()
             config = self.config_repo.get_all_config()
             from engine.domain.models import CalibrationData
             if region:
                 config.calibration = CalibrationData(
                     window_rect=region,
                     dpi=dpi,
-                    screen_size=(1920, 1080),
+                    screen_size=screen_size,
                     timestamp=datetime.now().isoformat(),
                 )
             self.config_repo.set("calibration", {
                 "window_rect": [region.left, region.top, region.width, region.height] if region else [0, 0, 0, 0],
-                "screen_size": [1920, 1080],
+                "screen_size": list(screen_size),
                 "dpi": dpi,
                 "timestamp": datetime.now().isoformat(),
             })
@@ -224,8 +225,14 @@ class Handlers:
         return {"removed": removed}
 
     def _handle_attachment_import(self, params: dict[str, object]) -> object:
-        src = str(params.get("path", ""))
-        dest = self.attachment_manager.import_file(src)
+        # Support both local file path and base64 data import
+        data_b64 = str(params.get("data", ""))
+        filename = str(params.get("filename", ""))
+        if data_b64 and filename:
+            dest = self.attachment_manager.import_from_data(filename, data_b64)
+        else:
+            src = str(params.get("path", ""))
+            dest = self.attachment_manager.import_file(src)
         if dest is None:
             return {"error": {"code": -32000, "message": "Import failed"}}
         return {"path": dest}

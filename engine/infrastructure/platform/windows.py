@@ -27,6 +27,10 @@ class WindowsPlatformAdapter(PlatformAdapter):
     def get_dpi_scale(self) -> float:
         return self.get_system_dpi() / 96.0
 
+    def get_screen_size(self) -> tuple[int, int]:
+        import win32api
+        return (win32api.GetSystemMetrics(0), win32api.GetSystemMetrics(1))
+
     def find_window_by_title(self, title: str) -> WindowInfo | None:
         import win32gui
 
@@ -63,11 +67,18 @@ class WindowsPlatformAdapter(PlatformAdapter):
             return WindowRect(left=r[0], top=r[1], width=r[2] - r[0], height=r[3] - r[1])
 
     def activate_window(self, hwnd: int) -> bool:
+        import win32com.client
         import win32gui
 
         try:
             if win32gui.IsIconic(hwnd):
                 win32gui.ShowWindow(hwnd, 9)
+            # Workaround for Windows foreground window lock
+            try:
+                shell = win32com.client.Dispatch("WScript.Shell")
+                shell.SendKeys("%")
+            except Exception:
+                pass
             win32gui.SetForegroundWindow(hwnd)
             return True
         except Exception:

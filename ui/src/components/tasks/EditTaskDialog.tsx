@@ -15,7 +15,7 @@ export function EditTaskDialog({ task, onSave, onClose }: Props) {
   const [contents, setContents] = useState<ContentItem[]>([...task.contents]);
 
   const addContent = (type: ContentItem['type']) => {
-    setContents([...contents, { type, value: '', sort_order: contents.length }]);
+    setContents([...contents, { type, value: '', sort_order: contents.length, category: '' }]);
   };
 
   const updateContent = (idx: number, value: string) => {

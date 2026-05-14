@@ -1,11 +1,15 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useTasks } from '../../hooks/useTasks';
-import { Users, Layers, Calendar, PlusCircle, XCircle, Upload, CheckCircle2 } from 'lucide-react';
+import { apiClient } from '../../services/api';
+import { Users, Layers, Calendar, PlusCircle, XCircle, Upload, CheckCircle2, FileImage, FileVideo } from 'lucide-react';
+
+const CATEGORIES = ['注射美容', '美容皮肤科', '美容外科'] as const;
 
 interface ContentItemForm {
   id: number;
   type: 'text' | 'image' | 'video';
   value: string;
+  category: string;
 }
 
 interface SlotForm {
@@ -20,7 +24,7 @@ export function CreatePage() {
   const [groups, setGroups] = useState<string[]>(['产品研发沟通群']);
   const [groupInput, setGroupInput] = useState('');
   const [slots, setSlots] = useState<SlotForm[]>([
-    { id: Date.now(), date: new Date().toISOString().slice(0, 10), time: '10:00', contents: [{ id: 1, type: 'text', value: '' }] }
+    { id: Date.now(), date: new Date().toISOString().slice(0, 10), time: '10:00', contents: [{ id: 1, type: 'text', value: '', category: '注射美容' }] }
   ]);
 
   const handleAddGroup = () => {
@@ -49,7 +53,7 @@ export function CreatePage() {
 
   const handleAddContent = (slotId: number, type: ContentItemForm['type']) => {
     setSlots(slots.map(s => s.id === slotId
-      ? { ...s, contents: [...s.contents, { id: Date.now(), type, value: type === 'text' ? '' : '待上传文件...' }] }
+      ? { ...s, contents: [...s.contents, { id: Date.now(), type, value: type === 'text' ? '' : '待上传文件...', category: '注射美容' }] }
       : s
     ));
   };
@@ -68,8 +72,38 @@ export function CreatePage() {
     ));
   };
 
+  const handleUpdateContentCategory = (slotId: number, contentId: number, category: string) => {
+    setSlots(slots.map(s => s.id === slotId
+      ? { ...s, contents: s.contents.map(c => c.id === contentId ? { ...c, category } : c) }
+      : s
+    ));
+  };
+
   const handleUpdateSlot = (slotId: number, field: 'date' | 'time', value: string) => {
     setSlots(slots.map(s => s.id === slotId ? { ...s, [field]: value } : s));
+  };
+
+  const [uploading, setUploading] = useState<Record<string, boolean>>({});
+  const fileInputRefs = useRef<Map<string, HTMLInputElement>>(new Map());
+
+  const handleImportFile = async (slotId: number, contentId: number, file: File) => {
+    const key = `${slotId}_${contentId}`;
+    setUploading(prev => ({ ...prev, [key]: true }));
+    try {
+      const reader = new FileReader();
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const base64 = dataUrl.split(',')[1];
+      const result = await apiClient.call('attachment.import', { filename: file.name, data: base64 }) as { path: string };
+      handleUpdateContent(slotId, contentId, result.path);
+    } catch (e) {
+      console.error('File import failed:', e);
+    } finally {
+      setUploading(prev => ({ ...prev, [key]: false }));
+    }
   };
 
   const handleSubmit = async () => {
@@ -89,6 +123,10 @@ export function CreatePage() {
   const activeSlots = slots.filter(s => s.contents.some(c => c.value.trim() !== ''));
   const totalTasks = groups.length * activeSlots.length;
   const accentColors = ['border-l-blue-500', 'border-l-purple-500', 'border-l-orange-500', 'border-l-green-500', 'border-l-indigo-500'];
+
+  const now = new Date();
+  const todayStr = now.toISOString().slice(0, 10);
+  const nowTimeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes() + 1).padStart(2, '0')}`;
 
   return (
     <div className="flex-1 overflow-y-auto bg-white p-4">
@@ -140,10 +178,10 @@ export function CreatePage() {
 
             <div className="flex items-center space-x-2 mb-3">
               <Calendar size={14} className="text-gray-400" />
-              <input type="date" value={slot.date}
+              <input type="date" value={slot.date} min={todayStr}
                 onChange={e => handleUpdateSlot(slot.id, 'date', e.target.value)}
                 className="flex-1 bg-gray-50 border border-gray-200 rounded-md px-2 py-1.5 text-xs" />
-              <input type="time" value={slot.time}
+              <input type="time" value={slot.time} min={slot.date === todayStr ? nowTimeStr : undefined}
                 onChange={e => handleUpdateSlot(slot.id, 'time', e.target.value)}
                 className="w-24 bg-gray-50 border border-gray-200 rounded-md px-2 py-1.5 text-xs" />
             </div>
@@ -154,16 +192,33 @@ export function CreatePage() {
                 <div key={c.id} className="bg-gray-50 border border-gray-200 rounded-lg p-2 relative group">
                   <div className="flex justify-between items-center mb-1">
                     <span className="text-xs font-bold text-gray-500">#{ci + 1} {c.type === 'text' ? '📝 文字' : c.type === 'image' ? '🖼 图片' : '🎬 视频'}</span>
-                    <button onClick={() => handleRemoveContent(slot.id, c.id)}><XCircle size={14} className="text-gray-400 hover:text-red-500" /></button>
+                    <div className="flex items-center space-x-1.5">
+                      <select
+                        value={c.category}
+                        onChange={e => handleUpdateContentCategory(slot.id, c.id, e.target.value)}
+                        className="text-[10px] bg-gray-50 border border-gray-200 rounded px-1.5 py-0.5 text-gray-500 focus:outline-none focus:border-indigo-300"
+                      >
+                        {CATEGORIES.map(cat => (
+                          <option key={cat} value={cat}>{cat}</option>
+                        ))}
+                      </select>
+                      <button onClick={() => handleRemoveContent(slot.id, c.id)}><XCircle size={14} className="text-gray-400 hover:text-red-500" /></button>
+                    </div>
                   </div>
                   {c.type === 'text' ? (
                     <textarea rows={2} placeholder="输入文字内容..."
                       className="w-full text-xs p-1.5 border border-gray-200 rounded bg-white focus:outline-none"
                       value={c.value} onChange={e => handleUpdateContent(slot.id, c.id, e.target.value)} />
                   ) : (
-                    <div className="flex items-center p-1.5 border border-dashed border-gray-300 rounded bg-white text-xs text-gray-500 cursor-pointer hover:bg-gray-100">
-                      <Upload size={14} className="mr-2 text-blue-400" /> {c.value || '点击选择文件'}
-                    </div>
+                    <MediaDropZone
+                      contentId={c.id}
+                      slotId={slot.id}
+                      value={c.value}
+                      type={c.type}
+                      uploading={uploading[`${slot.id}_${c.id}`]}
+                      onImport={handleImportFile}
+                      fileInputRefs={fileInputRefs}
+                    />
                   )}
                 </div>
               ))}
@@ -194,6 +249,76 @@ export function CreatePage() {
         <CheckCircle2 size={18} className="mr-2" /> 保存并加入队列
       </button>
       <div className="h-10" />
+    </div>
+  );
+}
+
+// ─── Media drop zone sub-component ───
+
+function MediaDropZone({
+  slotId, contentId, value, type, uploading, onImport, fileInputRefs,
+}: {
+  slotId: number; contentId: number; value: string; type: 'image' | 'video';
+  uploading: boolean; onImport: (slotId: number, contentId: number, file: File) => void;
+  fileInputRefs: React.MutableRefObject<Map<string, HTMLInputElement>>;
+}) {
+  const [dragOver, setDragOver] = useState(false);
+  const inputRefKey = `${slotId}_${contentId}`;
+  const fileName = value ? value.split(/[/\\]/).pop() || value : '';
+  const isPlaceholder = !value || value === '待上传文件...';
+  const accept = type === 'image' ? 'image/png,image/jpeg,image/webp,image/bmp' : 'video/mp4,video/avi,video/mov,video/mkv';
+
+  const processFiles = (files: FileList) => {
+    if (files.length === 0) return;
+    const file = files[0];
+    if (type === 'image' && !file.type.startsWith('image/')) return;
+    if (type === 'video' && !file.type.startsWith('video/')) return;
+    onImport(slotId, contentId, file);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); setDragOver(true); };
+  const handleDragLeave = () => setDragOver(false);
+  const handleDrop = (e: React.DragEvent) => { e.preventDefault(); setDragOver(false); processFiles(e.dataTransfer.files); };
+  const handleClick = () => { fileInputRefs.current.get(inputRefKey)?.click(); };
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) processFiles(e.target.files);
+    e.target.value = '';
+  };
+
+  const Icon = type === 'image' ? FileImage : FileVideo;
+  const typeLabel = type === 'image' ? '图片' : '视频';
+
+  return (
+    <div
+      className={`relative flex items-center p-1.5 border border-dashed rounded bg-white text-xs cursor-pointer transition-colors ${
+        dragOver ? 'border-blue-400 bg-blue-50' : isPlaceholder ? 'border-gray-300 hover:bg-gray-100 text-gray-500' : 'border-green-300 bg-green-50'
+      }`}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      onClick={handleClick}
+      title={isPlaceholder ? `点击或拖拽${typeLabel}文件到此处` : `点击或拖拽替换${typeLabel}文件`}
+    >
+      {uploading ? (
+        <span className="flex items-center text-blue-500">
+          <svg className="animate-spin h-3 w-3 mr-1.5" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+          导入中...
+        </span>
+      ) : isPlaceholder ? (
+        <span className="flex items-center">
+          <Upload size={14} className="mr-2 text-blue-400" /> 点击或拖拽{typeLabel}文件
+        </span>
+      ) : (
+        <span className="flex items-center text-green-700">
+          <Icon size={14} className="mr-1.5 text-green-500" />
+          {fileName}
+        </span>
+      )}
+      <input
+        ref={el => { if (el) fileInputRefs.current.set(inputRefKey, el); }}
+        type="file" accept={accept} className="hidden"
+        onChange={handleFileChange}
+      />
     </div>
   );
 }

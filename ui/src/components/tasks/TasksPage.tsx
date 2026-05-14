@@ -3,6 +3,7 @@ import { useTasks } from '../../hooks/useTasks';
 import { TaskCard } from './TaskCard';
 import { EditTaskDialog } from './EditTaskDialog';
 import { Clock } from 'lucide-react';
+import { apiClient } from '../../services/api';
 import type { Task } from '../../types/models';
 
 export function TasksPage() {
@@ -11,6 +12,11 @@ export function TasksPage() {
 
   useEffect(() => {
     fetchTasks();
+
+    const unsub = apiClient.on('connection', (evt) => {
+      if (evt.data.connected) fetchTasks();
+    });
+    return unsub;
   }, [fetchTasks]);
 
   const activeCount = tasks.filter(t => t.active).length;

@@ -15,6 +15,9 @@ class PlatformAdapter(ABC):
     def get_dpi_scale(self) -> float: ...
 
     @abstractmethod
+    def get_screen_size(self) -> tuple[int, int]: ...
+
+    @abstractmethod
     def find_window_by_title(self, title: str) -> WindowInfo | None: ...
 
     @abstractmethod

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain } = require('electron');
 const path = require('path');
 const { startEngine, stopEngine } = require('./python-manager');
 
@@ -34,6 +34,15 @@ function createWindow() {
     mainWindow = null;
   });
 }
+
+// Window control IPC handlers
+ipcMain.on('window:minimize', () => {
+  if (mainWindow) mainWindow.minimize();
+});
+
+ipcMain.on('window:close', () => {
+  if (mainWindow) mainWindow.close();
+});
 
 app.whenReady().then(async () => {
   // Start Python engine

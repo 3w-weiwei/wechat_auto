@@ -21,7 +21,7 @@ class TaskManager:
         return self._repo.get_by_id(task_id)
 
     def create(
-        self, group: str, datetime_str: str, contents: list[ContentItem], active: bool = True
+        self, group: str, datetime_str: str, contents: list[ContentItem], active: bool = True,
     ) -> Task:
         now = datetime.now().isoformat()
         task = Task(

@@ -6,6 +6,7 @@ export interface ContentItem {
   type: ContentType;
   value: string; // text content or file path
   sort_order: number;
+  category: string;
 }
 
 export interface Task {
