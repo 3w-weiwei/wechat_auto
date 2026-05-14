@@ -6,9 +6,9 @@
 
 ## 当前状态
 
-- **当前 Phase**: 5 — React UI（✅ 已完成）
-- **下一步**: Phase 6 — 桌面打包 (Electron)
-- **最新更新**: 2026-05-04 (Session 2)
+- **当前 Phase**: 6 — 功能完善 & 可移植性
+- **下一步**: Phase 7 — 桌面打包 (Electron builder)
+- **最新更新**: 2026-05-14 (Session 4)
 
 ---
 
@@ -70,3 +70,18 @@
 - **Phase 5 完成**: React UI (api client, 3 hooks, Zustand store, TasksPage/CreatePage/SettingsPage, EditTaskDialog, TaskCard, ToggleSwitch, ContentPreview)
 - 所有 lint 通过 (ruff + tsc), engine 模块导入和逻辑验证通过, UI build 成功 (223KB JS, 24KB CSS)
 - 总计 25+ 新文件，~4000 行新代码
+
+### 2026-05-13 (Session 3)
+- **Electron 桌面体验**: 无边框窗口增加最小化/关闭按钮 (IPC + preload + React)
+- **连接修复**: apiClient.call() 改为等待 WebSocket 握手完成再发请求，解决启动时 "Not connected" 错误
+- **端口清理**: python-manager.js 启动前/关闭后自动清理 9876 端口残留进程；main.py 优雅关闭 WS server
+- **Vite 构建**: outDir 改为 ../desktop/dist，消除手动复制步骤
+
+### 2026-05-14 (Session 4)
+- **可移植性**: 屏幕尺寸从硬编码 1920x1080 改为 win32api.GetSystemMetrics 查询；微信标题支持中英文候选；SetForegroundWindow Alt 键绕过前台锁定；DPI 失败增加告警日志；Debug 截图改为环境变量控制；uv 路径增加 Windows 典型位置；模板源 DPI 可在设置页配置
+- **拖拽上传**: 每个素材行支持拖拽 + 点击选择文件，base64 导入到 AttachmentManager
+- **素材分类**: ContentItem 新增 category 字段（注射美容/美容皮肤科/美容外科），每个素材独立分类
+- **时段/任务双验证**: 日期只能选今天及之后，时间若选今天则限制当前时间之后
+- **过期任务**: 任务卡片自动检测过期，变灰 + "已过期" 标签
+- 双配置 (config.json + SQLite) 合并为 SQLite 单一来源
+- 回退偏移从硬编码 px 改为百分比（7% 搜索栏，1.3x 标签点击）
